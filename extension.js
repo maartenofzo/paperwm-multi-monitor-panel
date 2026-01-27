@@ -142,7 +142,36 @@ export default class PaperWmExtraIndicators extends Extension {
                 }
             };
 
-            // 1. Input Source (Keyboard Layout)
+            // 1. Ubuntu AppIndicators (and others) - ADDED FIRST (Left)
+            try {
+                // Find all keys that look like indicators/tray
+                const keys = Object.keys(Main.panel.statusArea).filter(k => 
+                    (k.toLowerCase().includes('appindicator') || 
+                    k.toLowerCase().includes('tray') || 
+                    k.toLowerCase().includes('menu')) &&
+                    !k.toLowerCase().includes('paperwm') && // Blacklist PaperWM label
+                    !k.toLowerCase().includes('workspace')
+                );
+                
+                keys.forEach(key => {
+                    const indicator = Main.panel.statusArea[key];
+                    let sourceActor = null;
+                    if (indicator instanceof Clutter.Actor) sourceActor = indicator;
+                    else if (indicator.container) sourceActor = indicator.container;
+                    else if (indicator.actor) sourceActor = indicator.actor;
+                    else if (indicator.get_first_child) sourceActor = indicator;
+
+                    if (sourceActor && sourceActor !== Main.panel.statusArea.quickSettings) {
+                         const clone = new Clutter.Clone({ source: sourceActor });
+                         clone.visible = true;
+                         safeAdd(clone, `IndicatorClone_${key}`);
+                    }
+                });
+            } catch(e) {
+                console.error('PaperWM Extra Indicators: Failed to clone AppIndicators', e);
+            }
+
+            // 2. Input Source (Keyboard Layout) - ADDED MIDDLE
             try {
                 // Try to find existing one first
                 const kbdKey = Object.keys(Main.panel.statusArea).find(k => 
@@ -165,7 +194,7 @@ export default class PaperWmExtraIndicators extends Extension {
                 console.error('PaperWM Extra Indicators: Failed to setup InputSourceIndicator', e);
             }
 
-            // 2. System Indicators
+            // 3. System Indicators (QuickSettings) - ADDED LAST (Right)
             try {
                 const quickSettings = Main.panel.statusArea.quickSettings;
                 if (quickSettings) {
@@ -179,33 +208,6 @@ export default class PaperWmExtraIndicators extends Extension {
                 }
             } catch (e) {
                  console.error('PaperWM Extra Indicators: Failed to clone SystemIndicators', e);
-            }
-
-            // 3. Ubuntu AppIndicators (and others)
-            try {
-                // Find all keys that look like indicators/tray
-                const keys = Object.keys(Main.panel.statusArea).filter(k => 
-                    k.toLowerCase().includes('appindicator') || 
-                    k.toLowerCase().includes('tray') || 
-                    k.toLowerCase().includes('menu')
-                );
-                
-                keys.forEach(key => {
-                    const indicator = Main.panel.statusArea[key];
-                    let sourceActor = null;
-                    if (indicator instanceof Clutter.Actor) sourceActor = indicator;
-                    else if (indicator.container) sourceActor = indicator.container;
-                    else if (indicator.actor) sourceActor = indicator.actor;
-                    else if (indicator.get_first_child) sourceActor = indicator;
-
-                    if (sourceActor && sourceActor !== Main.panel.statusArea.quickSettings) {
-                         const clone = new Clutter.Clone({ source: sourceActor });
-                         clone.visible = true;
-                         safeAdd(clone, `IndicatorClone_${key}`);
-                    }
-                });
-            } catch(e) {
-                console.error('PaperWM Extra Indicators: Failed to clone AppIndicators', e);
             }
 
             // Add box to PaperWM clip actor
