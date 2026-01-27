@@ -122,6 +122,9 @@ export default class PaperWmExtraIndicators extends Extension {
                 height: Main.panel.height
             });
 
+            // Adding 'panel' class helps themes apply hover/active styles to children
+            box.add_style_class_name('panel');
+
             // Styling: minimal padding, explicit height context
             box.set_style('background-color: rgba(0,0,0,0.9); border-radius: 0 0 0 12px; padding: 0px; margin: 0px;');
 
@@ -176,14 +179,22 @@ export default class PaperWmExtraIndicators extends Extension {
                              const originalSource = menu.sourceActor;
                              menu.sourceActor = button;
                              
-                             // Visual feedback
+                             // Visual feedback for our button
                              button.add_style_pseudo_class('active');
+                             button.add_style_pseudo_class('checked');
+                             
+                             // Suppress visual feedback on original button
+                             if (originalSource && originalSource.remove_style_pseudo_class) {
+                                 originalSource.remove_style_pseudo_class('active');
+                                 originalSource.remove_style_pseudo_class('checked');
+                             }
                              
                              menu.toggle();
                              
                              const id = menu.connect('open-state-changed', (m, isOpen) => {
                                  if (!isOpen) {
                                      button.remove_style_pseudo_class('active');
+                                     button.remove_style_pseudo_class('checked');
                                      
                                      if (menu.sourceActor === button) {
                                          menu.sourceActor = originalSource;
