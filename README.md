@@ -4,6 +4,13 @@ This is a GNOME Shell extension designed to enhance the [PaperWM](https://github
 
 By default, PaperWM provides per-monitor workspaces/bars, but the system status indicators (Quick Settings, Clock, Input Source, AppIndicators) are only visible on the primary monitor's top panel. This extension replicates those indicators onto the PaperWM bars of your secondary monitors, maintaining visual consistency and providing full interactivity.
 
+## Terminology
+
+- **PaperWM Bar:** The top strip provided by PaperWM on every monitor for workspace management.
+- **GNOME Shell Panel:** The system-wide top bar (usually only on the primary monitor) that houses the clock and system indicators.
+
+This extension bridges the two by bringing **Panel** functionality into the **PaperWM Bar** on all monitors.
+
 ## Features
 
 - **Multi-Monitor Support:** Automatically detects secondary monitors and adds indicators to the PaperWM bar.
