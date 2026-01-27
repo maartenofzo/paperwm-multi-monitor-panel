@@ -164,6 +164,9 @@ export default class PaperWmExtraIndicators extends Extension {
                     clone.set_width(-1); // Natural width
                     clone.y_expand = false;
                     clone.y_align = Clutter.ActorAlign.CENTER;
+                    
+                    // Let button handle interaction, clone is just visual
+                    clone.reactive = false; 
                     clone.visible = true;
                     
                     button.set_child(clone);
@@ -172,10 +175,16 @@ export default class PaperWmExtraIndicators extends Extension {
                         button.connect('clicked', () => {
                              const originalSource = menu.sourceActor;
                              menu.sourceActor = button;
+                             
+                             // Visual feedback
+                             button.add_style_pseudo_class('active');
+                             
                              menu.toggle();
                              
                              const id = menu.connect('open-state-changed', (m, isOpen) => {
                                  if (!isOpen) {
+                                     button.remove_style_pseudo_class('active');
+                                     
                                      if (menu.sourceActor === button) {
                                          menu.sourceActor = originalSource;
                                      }
