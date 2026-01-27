@@ -155,11 +155,14 @@ export default class PaperWmExtraIndicators extends Extension {
                     });
                     
                     // Button styling to match panel but avoid squash
-                    // We remove vertical padding/margin that might be in the theme
-                    // and rely on centering.
                     button.set_style('padding: 0px 8px; margin: 0px;');
 
                     const clone = new Clutter.Clone({ source: sourceActor });
+                    
+                    // CRITICAL: Force clone sizing to match panel (Fixes squash)
+                    clone.set_height(Main.panel.height);
+                    clone.set_width(-1); // Natural width
+                    clone.y_expand = false;
                     clone.y_align = Clutter.ActorAlign.CENTER;
                     clone.visible = true;
                     
