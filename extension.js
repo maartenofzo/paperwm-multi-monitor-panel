@@ -142,12 +142,27 @@ export default class PaperWmExtraIndicators extends Extension {
                 }
             };
 
-            // 1. Input Source
+            // 1. Input Source (Keyboard Layout)
             try {
-                const inputIndicator = new Keyboard.InputSourceIndicator();
-                if (inputIndicator) safeAdd(inputIndicator, 'InputSourceIndicator');
+                // Try to find existing one first
+                const kbdKey = Object.keys(Main.panel.statusArea).find(k => 
+                    k.toLowerCase().includes('keyboard') || k.toLowerCase().includes('inputsource'));
+                
+                let kbdActor = kbdKey ? Main.panel.statusArea[kbdKey] : null;
+                if (kbdActor) {
+                    const clone = new Clutter.Clone({ source: kbdActor });
+                    clone.visible = true;
+                    safeAdd(clone, 'KeyboardLayoutClone');
+                } else {
+                    // Fallback to new instance
+                    const inputIndicator = new Keyboard.InputSourceIndicator();
+                    if (inputIndicator) {
+                        inputIndicator.visible = true;
+                        safeAdd(inputIndicator, 'InputSourceIndicatorNew');
+                    }
+                }
             } catch (e) {
-                console.error('PaperWM Extra Indicators: Failed to create InputSourceIndicator', e);
+                console.error('PaperWM Extra Indicators: Failed to setup InputSourceIndicator', e);
             }
 
             // 2. System Indicators
@@ -158,6 +173,7 @@ export default class PaperWmExtraIndicators extends Extension {
                     if (indicatorsActor) {
                          const clone = new Clutter.Clone({ source: indicatorsActor });
                          clone.reactive = true;
+                         clone.visible = true;
                          safeAdd(clone, 'QuickSettingsClone');
                     }
                 }
@@ -165,23 +181,29 @@ export default class PaperWmExtraIndicators extends Extension {
                  console.error('PaperWM Extra Indicators: Failed to clone SystemIndicators', e);
             }
 
-            // 3. Ubuntu AppIndicators
+            // 3. Ubuntu AppIndicators (and others)
             try {
-                const keys = Object.keys(Main.panel.statusArea);
-                const appIndKey = keys.find(k => k.toLowerCase().includes('appindicator'));
-                if (appIndKey) {
-                    const appInd = Main.panel.statusArea[appIndKey];
+                // Find all keys that look like indicators/tray
+                const keys = Object.keys(Main.panel.statusArea).filter(k => 
+                    k.toLowerCase().includes('appindicator') || 
+                    k.toLowerCase().includes('tray') || 
+                    k.toLowerCase().includes('menu')
+                );
+                
+                keys.forEach(key => {
+                    const indicator = Main.panel.statusArea[key];
                     let sourceActor = null;
-                    if (appInd instanceof Clutter.Actor) sourceActor = appInd;
-                    else if (appInd.container) sourceActor = appInd.container;
-                    else if (appInd.actor) sourceActor = appInd.actor;
-                    else if (appInd.get_first_child) sourceActor = appInd;
+                    if (indicator instanceof Clutter.Actor) sourceActor = indicator;
+                    else if (indicator.container) sourceActor = indicator.container;
+                    else if (indicator.actor) sourceActor = indicator.actor;
+                    else if (indicator.get_first_child) sourceActor = indicator;
 
-                    if (sourceActor) {
+                    if (sourceActor && sourceActor !== Main.panel.statusArea.quickSettings) {
                          const clone = new Clutter.Clone({ source: sourceActor });
-                         safeAdd(clone, 'AppIndicatorsClone');
+                         clone.visible = true;
+                         safeAdd(clone, `IndicatorClone_${key}`);
                     }
-                }
+                });
             } catch(e) {
                 console.error('PaperWM Extra Indicators: Failed to clone AppIndicators', e);
             }
