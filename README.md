@@ -30,22 +30,22 @@ By default, PaperWM provides per-monitor workspaces/bars, but the system status 
 
 ## Installation
 
-### From Source
+### Manual Installation
 
-1. Clone this repository or download the source.
-2. Run the installation command:
+1. Clone this repository.
+2. Zip the extension:
    ```bash
-   # Create the extension directory
-   mkdir -p ~/.local/share/gnome-shell/extensions/paperwm-extra-bar-indicators@maarten.me
-   
-   # Copy files
-   cp extension.js metadata.json ~/.local/share/gnome-shell/extensions/paperwm-extra-bar-indicators@maarten.me/
+   zip -r extension.zip . -x "*.git*" "extension.zip"
    ```
-3. Restart GNOME Shell (Log out/in or `Alt+F2`, `r` on X11).
+3. Install the extension using the CLI:
+   ```bash
+   gnome-extensions install --force extension.zip
+   ```
 4. Enable the extension:
    ```bash
    gnome-extensions enable paperwm-extra-bar-indicators@maarten.me
    ```
+5. Restart GNOME Shell (Log out/in or `Alt+F2`, `r` on X11) if needed.
 
 ## Development
 
