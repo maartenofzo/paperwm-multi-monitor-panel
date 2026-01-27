@@ -203,6 +203,36 @@ export default class PaperWmExtraIndicators extends Extension {
                          const clone = new Clutter.Clone({ source: indicatorsActor });
                          clone.reactive = true;
                          clone.visible = true;
+
+                         // Make Clickable
+                         const action = new Clutter.ClickAction();
+                         action.connect('clicked', () => {
+                             const menu = quickSettings.menu;
+                             if (!menu) return;
+
+                             const originalSource = menu.sourceActor;
+                             
+                             // If menu is closed, or open but on another actor, we want to open/move it here.
+                             // Simple toggle logic:
+                             // 1. Temporarily set source to this clone
+                             menu.sourceActor = clone;
+                             
+                             // 2. Toggle
+                             menu.toggle();
+                             
+                             // 3. Restore original source when closed to avoid breaking main panel button
+                             const id = menu.connect('open-state-changed', (m, isOpen) => {
+                                 if (!isOpen) {
+                                     // Only restore if we are still the source (race condition check)
+                                     if (menu.sourceActor === clone) {
+                                         menu.sourceActor = originalSource;
+                                     }
+                                     menu.disconnect(id);
+                                 }
+                             });
+                         });
+                         clone.add_action(action);
+
                          safeAdd(clone, 'QuickSettingsClone');
                     }
                 }
