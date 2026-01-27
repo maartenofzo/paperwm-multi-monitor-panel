@@ -3,5 +3,6 @@
     "description": "Adds system indicators to PaperWM bars on all monitors",
     "uuid": "paperwm-extra-bar-indicators@maarten.me",
     "shell-version": [ "46", "47" ],
-    "url": ""
+    "url": "",
+    "license": "GPL-3.0"
 }
