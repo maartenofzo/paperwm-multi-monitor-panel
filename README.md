@@ -1,4 +1,4 @@
-# PaperWM Extra Bar Indicators
+# PaperWM Multi-Monitor Panel
 
 This is a GNOME Shell extension designed to enhance the [PaperWM](https://github.com/paperwm/PaperWM) tiling window manager experience on multi-monitor setups.
 

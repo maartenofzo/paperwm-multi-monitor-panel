@@ -1,5 +1,5 @@
 {
-    "name": "PaperWM Extra Bar Indicators",
+    "name": "PaperWM Multi-Monitor Panel",
     "description": "Adds system indicators to PaperWM bars on all monitors",
     "uuid": "paperwm-extra-bar-indicators@maarten.me",
     "shell-version": [ "46", "47" ],
