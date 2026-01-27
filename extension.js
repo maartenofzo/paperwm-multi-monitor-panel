@@ -146,6 +146,8 @@ export default class PaperWmExtraIndicators extends Extension {
             };
 
             // Helper to create interactive panel buttons
+            // We use St.Button to provide standard hover/click states matching the system panel.
+            // We clone the source actor (icon) to replicate its look on the secondary monitor.
             const createButton = (sourceActor, menu, name) => {
                 try {
                     const button = new St.Button({
@@ -157,18 +159,16 @@ export default class PaperWmExtraIndicators extends Extension {
                         height: Main.panel.height
                     });
                     
-                    // Button styling to match panel but avoid squash
+                    // Explicit sizing is critical to prevent Clutter from squashing the cloned content
                     button.set_style('padding: 0px 8px; margin: 0px;');
 
                     const clone = new Clutter.Clone({ source: sourceActor });
-                    
-                    // CRITICAL: Force clone sizing to match panel (Fixes squash)
                     clone.set_height(Main.panel.height);
                     clone.set_width(-1); // Natural width
                     clone.y_expand = false;
                     clone.y_align = Clutter.ActorAlign.CENTER;
                     
-                    // Let button handle interaction, clone is just visual
+                    // Disable reactivity on the clone so the button receives all events
                     clone.reactive = false; 
                     clone.visible = true;
                     
@@ -177,17 +177,14 @@ export default class PaperWmExtraIndicators extends Extension {
                     if (menu) {
                         button.connect('clicked', () => {
                              const originalSource = menu.sourceActor;
+                             
+                             // Temporarily hijack the menu's source actor so the menu pops up 
+                             // attached to our button on the secondary monitor.
                              menu.sourceActor = button;
                              
-                             // Visual feedback for our button
+                             // Manually apply active states for visual feedback
                              button.add_style_pseudo_class('active');
                              button.add_style_pseudo_class('checked');
-                             
-                             // Suppress visual feedback on original button
-                             if (originalSource && originalSource.remove_style_pseudo_class) {
-                                 originalSource.remove_style_pseudo_class('active');
-                                 originalSource.remove_style_pseudo_class('checked');
-                             }
                              
                              menu.toggle();
                              
@@ -196,6 +193,7 @@ export default class PaperWmExtraIndicators extends Extension {
                                      button.remove_style_pseudo_class('active');
                                      button.remove_style_pseudo_class('checked');
                                      
+                                     // Restore original source to avoid breaking the main panel behavior
                                      if (menu.sourceActor === button) {
                                          menu.sourceActor = originalSource;
                                      }

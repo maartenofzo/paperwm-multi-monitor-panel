@@ -2,17 +2,25 @@
 
 This is a GNOME Shell extension designed to enhance the [PaperWM](https://github.com/paperwm/PaperWM) tiling window manager experience on multi-monitor setups.
 
-By default, PaperWM provides per-monitor workspaces/bars, but the system status indicators (Quick Settings, Network, Volume, Battery, Input Source, AppIndicators) are only visible on the primary monitor's top panel. This extension replicates those indicators onto the PaperWM bars of your secondary monitors.
+By default, PaperWM provides per-monitor workspaces/bars, but the system status indicators (Quick Settings, Clock, Input Source, AppIndicators) are only visible on the primary monitor's top panel. This extension replicates those indicators onto the PaperWM bars of your secondary monitors, maintaining visual consistency and providing full interactivity.
 
 ## Features
 
 - **Multi-Monitor Support:** Automatically detects secondary monitors and adds indicators to the PaperWM bar.
 - **Smart Detection:** Skips the primary monitor to prevent duplicate indicators.
+- **Full Interactivity:**
+  - **Quick Settings:** Click the Wifi/Volume/Battery icons on any monitor to open the Quick Settings menu right there.
+  - **Date & Time:** Click the clock to open the Notification/Calendar panel on that monitor.
+  - **Input Source:** Click the keyboard icon to switch layouts (if available).
 - **System Integration:**
   - Mirrors **Quick Settings** (Wifi, Volume, Battery, etc.).
+  - Mirrors **Date/Time** (Clock).
   - Mirrors **Input Source** (Keyboard layout).
   - Mirrors **Ubuntu AppIndicators** (Tray icons), if available.
-- **Visual Consistency:** Matches the system panel height and styling to look integrated with GNOME Shell.
+- **Native Look & Feel:**
+  - Uses standard GNOME Shell hover states (`.panel-button`).
+  - Correctly sizes icons to match the panel height without squashing.
+  - Aligns indicators to the right, matching the standard shell layout order (AppIndicators -> Clock -> Input -> System).
 
 ## Requirements
 
@@ -41,4 +49,4 @@ By default, PaperWM provides per-monitor workspaces/bars, but the system status 
 
 ## Development
 
-The core logic resides in `extension.js`. It listens for PaperWM space creation and appends a `St.BoxLayout` containing `Clutter.Clone`s of the main panel's status area actors.
+The core logic resides in `extension.js`. It listens for PaperWM space creation and appends a `St.BoxLayout` containing interactive `St.Button`s wrapping `Clutter.Clone`s of the main panel's status area actors. It leverages GNOME Shell's existing menus by temporarily "hijacking" their source actor to open them on the secondary monitor.
