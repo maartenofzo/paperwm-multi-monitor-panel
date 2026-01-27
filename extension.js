@@ -142,14 +142,60 @@ export default class PaperWmExtraIndicators extends Extension {
                 }
             };
 
-            // 1. Ubuntu AppIndicators (and others) - ADDED FIRST (Left)
+            // Helper to create interactive panel buttons
+            const createButton = (sourceActor, menu, name) => {
+                try {
+                    const button = new St.Button({
+                        style_class: 'panel-button',
+                        reactive: true,
+                        can_focus: true,
+                        track_hover: true,
+                        y_align: Clutter.ActorAlign.CENTER,
+                        height: Main.panel.height
+                    });
+                    
+                    // Button styling to match panel but avoid squash
+                    // We remove vertical padding/margin that might be in the theme
+                    // and rely on centering.
+                    button.set_style('padding: 0px 8px; margin: 0px;');
+
+                    const clone = new Clutter.Clone({ source: sourceActor });
+                    clone.y_align = Clutter.ActorAlign.CENTER;
+                    clone.visible = true;
+                    
+                    button.set_child(clone);
+
+                    if (menu) {
+                        button.connect('clicked', () => {
+                             const originalSource = menu.sourceActor;
+                             menu.sourceActor = button;
+                             menu.toggle();
+                             
+                             const id = menu.connect('open-state-changed', (m, isOpen) => {
+                                 if (!isOpen) {
+                                     if (menu.sourceActor === button) {
+                                         menu.sourceActor = originalSource;
+                                     }
+                                     menu.disconnect(id);
+                                 }
+                             });
+                        });
+                    }
+
+                    box.add_child(button);
+                    return button;
+                } catch (e) {
+                    console.error(`PaperWM Extra Indicators: Failed to create button for ${name}`, e);
+                    return null;
+                }
+            };
+
+            // 1. Ubuntu AppIndicators (Left)
             try {
-                // Find all keys that look like indicators/tray
                 const keys = Object.keys(Main.panel.statusArea).filter(k => 
                     (k.toLowerCase().includes('appindicator') || 
-                    k.toLowerCase().includes('tray') || 
-                    k.toLowerCase().includes('menu')) &&
-                    !k.toLowerCase().includes('paperwm') && // Blacklist PaperWM label
+                    k.toLowerCase().includes('tray')) &&
+                    !k.toLowerCase().includes('paperwm') && 
                     !k.toLowerCase().includes('workspace')
                 );
                 
@@ -159,81 +205,70 @@ export default class PaperWmExtraIndicators extends Extension {
                     if (indicator instanceof Clutter.Actor) sourceActor = indicator;
                     else if (indicator.container) sourceActor = indicator.container;
                     else if (indicator.actor) sourceActor = indicator.actor;
-                    else if (indicator.get_first_child) sourceActor = indicator;
+                    
+                    // Try to find the menu
+                    let menu = indicator.menu || (indicator instanceof QuickSettings.QuickSettings ? indicator.menu : null);
 
-                    if (sourceActor && sourceActor !== Main.panel.statusArea.quickSettings) {
-                         const clone = new Clutter.Clone({ source: sourceActor });
-                         clone.visible = true;
-                         safeAdd(clone, `IndicatorClone_${key}`);
+                    if (sourceActor) {
+                         createButton(sourceActor, menu, `Indicator_${key}`);
                     }
                 });
             } catch(e) {
                 console.error('PaperWM Extra Indicators: Failed to clone AppIndicators', e);
             }
 
-            // 2. Input Source (Keyboard Layout) - ADDED MIDDLE
+            // 2. Date Menu (Clock/Calendar) - Center-ish
             try {
-                // Try to find existing one first
+                const dateMenu = Main.panel.statusArea.dateMenu;
+                if (dateMenu) {
+                    // usually dateMenu.container is the actor to clone
+                    let source = dateMenu.container || dateMenu.actor || dateMenu;
+                    // For DateMenu, we often want the label + child.
+                    // .container usually holds the Box with Label.
+                    if (source) {
+                        createButton(source, dateMenu.menu, 'DateMenu');
+                    }
+                }
+            } catch (e) {
+                console.error('PaperWM Extra Indicators: Failed to clone DateMenu', e);
+            }
+
+            // 3. Input Source (Keyboard Layout)
+            try {
                 const kbdKey = Object.keys(Main.panel.statusArea).find(k => 
                     k.toLowerCase().includes('keyboard') || k.toLowerCase().includes('inputsource'));
                 
-                let kbdActor = kbdKey ? Main.panel.statusArea[kbdKey] : null;
-                if (kbdActor) {
-                    const clone = new Clutter.Clone({ source: kbdActor });
-                    clone.visible = true;
-                    safeAdd(clone, 'KeyboardLayoutClone');
+                let kbdItem = kbdKey ? Main.panel.statusArea[kbdKey] : null;
+                if (kbdItem) {
+                    // Input Source indicator usually has a menu too
+                    createButton(kbdItem, kbdItem.menu, 'KeyboardLayout');
                 } else {
-                    // Fallback to new instance
+                    // Fallback
                     const inputIndicator = new Keyboard.InputSourceIndicator();
                     if (inputIndicator) {
                         inputIndicator.visible = true;
-                        safeAdd(inputIndicator, 'InputSourceIndicatorNew');
+                        // Wrap manually since we can't easily toggle a menu on a fresh instance
+                        const btn = new St.Button({
+                            style_class: 'panel-button',
+                            y_align: Clutter.ActorAlign.CENTER,
+                            height: Main.panel.height,
+                            child: inputIndicator
+                        });
+                        btn.set_style('padding: 0px 8px;');
+                        box.add_child(btn);
                     }
                 }
             } catch (e) {
                 console.error('PaperWM Extra Indicators: Failed to setup InputSourceIndicator', e);
             }
 
-            // 3. System Indicators (QuickSettings) - ADDED LAST (Right)
+            // 4. System Indicators (QuickSettings) - Right
             try {
                 const quickSettings = Main.panel.statusArea.quickSettings;
                 if (quickSettings) {
                     const indicatorsActor = quickSettings.get_first_child(); 
                     if (indicatorsActor) {
-                         const clone = new Clutter.Clone({ source: indicatorsActor });
-                         clone.reactive = true;
-                         clone.visible = true;
-
-                         // Make Clickable
-                         const action = new Clutter.ClickAction();
-                         action.connect('clicked', () => {
-                             const menu = quickSettings.menu;
-                             if (!menu) return;
-
-                             const originalSource = menu.sourceActor;
-                             
-                             // If menu is closed, or open but on another actor, we want to open/move it here.
-                             // Simple toggle logic:
-                             // 1. Temporarily set source to this clone
-                             menu.sourceActor = clone;
-                             
-                             // 2. Toggle
-                             menu.toggle();
-                             
-                             // 3. Restore original source when closed to avoid breaking main panel button
-                             const id = menu.connect('open-state-changed', (m, isOpen) => {
-                                 if (!isOpen) {
-                                     // Only restore if we are still the source (race condition check)
-                                     if (menu.sourceActor === clone) {
-                                         menu.sourceActor = originalSource;
-                                     }
-                                     menu.disconnect(id);
-                                 }
-                             });
-                         });
-                         clone.add_action(action);
-
-                         safeAdd(clone, 'QuickSettingsClone');
+                         createButton(indicatorsActor, quickSettings.menu, 'QuickSettings');
                     }
                 }
             } catch (e) {
