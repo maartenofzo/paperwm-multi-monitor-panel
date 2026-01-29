@@ -213,8 +213,6 @@ export default class PaperWmExtraIndicators extends Extension {
                 button.set_style('padding: 0px 8px; margin: 0px;');
 
                 const clone = new Clutter.Clone({ source: sourceActor });
-                clone.set_height(Main.panel.height);
-                clone.set_width(-1); 
                 clone.y_expand = false;
                 clone.y_align = Clutter.ActorAlign.CENTER;
                 clone.reactive = false; 
