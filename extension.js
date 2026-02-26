@@ -11,58 +11,89 @@ const INDICATOR_CONTAINER_NAME = 'paperwm-extra-indicators';
 
 export default class PaperWmExtraIndicators extends Extension {
     enable() {
+        console.log('PaperWM Extra Indicators: [ENABLE] Starting...');
         this._spaces = [];
-        this._spaceSignals = new Map(); // Map<spaceActor, list of signal IDs>
+        this._spaceSignals = new Map(); 
+        this._panelSignals = [];
         this._checkTimer = null;
         this._childAddedId = null;
+        this._rebuildIdleId = 0;
         this._monitorsChangedId = null;
         this._container = null;
+        this._isRebuilding = false;
 
-        // Use a slight delay to ensure PaperWM is loaded
-        this._checkTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
-            this._startLooking();
-            this._checkTimer = null;
-            return GLib.SOURCE_REMOVE;
-        });
+        try {
+            this._checkTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
+                this._startLooking();
+                this._checkTimer = null;
+                return GLib.SOURCE_REMOVE;
+            });
 
-        this._monitorsChangedId = Main.layoutManager.connect('monitors-changed', () => {
-            // Rebuild everything on monitor configuration changes to fix scaling/stretching
-            this._rebuildAll();
-        });
+            this._monitorsChangedId = Main.layoutManager.connect('monitors-changed', () => {
+                this._queueRebuild('monitors-changed');
+            });
+
+            [Main.panel._leftBox, Main.panel._centerBox, Main.panel._rightBox].forEach((box, i) => {
+                const name = ['left', 'center', 'right'][i];
+                if (!box) return;
+                const onPanelChanged = () => this._queueRebuild(`panel-${name}-change`);
+                this._panelSignals.push({ box, id: box.connect('child-added', onPanelChanged) });
+                this._panelSignals.push({ box, id: box.connect('child-removed', onPanelChanged) });
+            });
+        } catch (e) {
+            console.log(`PaperWM Extra Indicators: [ERROR] Enable failed: ${e.message}`);
+        }
+        console.log('PaperWM Extra Indicators: [ENABLE] Complete');
     }
 
     disable() {
-        if (this._checkTimer) {
-            GLib.source_remove(this._checkTimer);
-            this._checkTimer = null;
-        }
-
-        if (this._monitorsChangedId) {
-            Main.layoutManager.disconnect(this._monitorsChangedId);
-            this._monitorsChangedId = null;
-        }
-
+        console.log('PaperWM Extra Indicators: [DISABLE] Starting...');
+        if (this._checkTimer) { GLib.source_remove(this._checkTimer); this._checkTimer = null; }
+        if (this._rebuildIdleId) { GLib.source_remove(this._rebuildIdleId); this._rebuildIdleId = 0; }
+        if (this._monitorsChangedId) { Main.layoutManager.disconnect(this._monitorsChangedId); this._monitorsChangedId = null; }
         if (this._container && this._childAddedId) {
-            this._container.disconnect(this._childAddedId);
+            try { this._container.disconnect(this._childAddedId); } catch (e) {}
             this._childAddedId = null;
         }
-
-        this._spaces.forEach(space => this._cleanupSpace(space));
+        this._panelSignals.forEach(({ box, id }) => { try { box.disconnect(id); } catch (e) {} });
+        this._panelSignals = [];
+        this._spaces.forEach((space) => this._cleanupSpace(space));
         this._spaces = [];
         this._spaceSignals.clear();
-        this._container = null;
+        console.log('PaperWM Extra Indicators: [DISABLE] Complete');
+    }
+
+    _queueRebuild(reason) {
+        if (this._rebuildIdleId) GLib.source_remove(this._rebuildIdleId);
+        this._rebuildIdleId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            this._rebuildAll(reason);
+            this._rebuildIdleId = 0;
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    _isValid(obj) {
+        try {
+            return obj && !GObject.Object.prototype.toString.call(obj).includes('Finalized');
+        } catch (e) { return false; }
+    }
+
+    _isValidActor(actor) {
+        try {
+            return this._isValid(actor) && 
+                   actor instanceof Clutter.Actor && 
+                   actor.get_stage() !== null;
+        } catch (e) { return false; }
     }
 
     _startLooking() {
         const bgGroup = Main.layoutManager._backgroundGroup;
         if (!bgGroup) return;
-
-        // PaperWM creates a container named 'spaceContainer'
         const container = bgGroup.get_children().find(c => c.name === 'spaceContainer');
         if (container) {
+            console.log('PaperWM Extra Indicators: [RESEARCH] Found spaceContainer');
             this._connectToContainer(container);
         } else {
-            // Keep looking if not found yet
             this._checkTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 2, () => {
                 this._startLooking();
                 this._checkTimer = null;
@@ -73,290 +104,243 @@ export default class PaperWmExtraIndicators extends Extension {
 
     _connectToContainer(container) {
         this._container = container;
-        
-        // Listen for new spaces
         this._childAddedId = container.connect('child-added', (c, actor) => {
-            this._trackSpace(actor);
+            GLib.idle_add(GLib.PRIORITY_DEFAULT, () => { this._trackSpace(actor); return GLib.SOURCE_REMOVE; });
         });
-        
-        // Process existing spaces
         container.get_children().forEach(s => this._trackSpace(s));
     }
 
     _trackSpace(space) {
-        if (this._spaces.includes(space)) return;
-
+        if (!this._isValidActor(space) || this._spaces.includes(space)) return;
+        console.log(`PaperWM Extra Indicators: [SPACE] Tracking space: ${space.name || 'unnamed'}`);
         this._spaces.push(space);
-        
-        // Listen for allocation changes (movement between monitors)
-        // Debouncing might be good, but for now we just check cheaply.
-        const allocId = space.connect('notify::allocation', () => {
-             this._updateSpace(space);
-        });
-
-        // Listen for destruction
+        const allocId = space.connect('notify::allocation', () => { try { this._updateSpace(space); } catch (e) {} });
         const destroyId = space.connect('destroy', () => {
             this._cleanupSpace(space);
             const index = this._spaces.indexOf(space);
             if (index > -1) this._spaces.splice(index, 1);
         });
-
         this._spaceSignals.set(space, [allocId, destroyId]);
-
-        // Initial update
         this._updateSpace(space);
     }
 
     _cleanupSpace(space) {
-        // Remove indicators
-        const box = space.get_children().find(c => c.name === INDICATOR_CONTAINER_NAME);
-        if (box) box.destroy();
-        delete space._hasExtraIndicators;
-
-        // Disconnect signals
+        if (!space) return;
+        try {
+            const children = space.get_children ? space.get_children() : [];
+            const box = children.find(c => c && c.name === INDICATOR_CONTAINER_NAME);
+            if (box) box.destroy();
+        } catch (e) {}
+        try { delete space._hasExtraIndicators; } catch (e) {}
         const signals = this._spaceSignals.get(space);
         if (signals) {
-            signals.forEach(id => space.disconnect(id));
+            signals.forEach(id => { try { space.disconnect(id); } catch (e) {} });
             this._spaceSignals.delete(space);
         }
     }
 
-    _rebuildAll() {
-        this._spaces.forEach(space => {
-            // Force remove existing indicators
-            const box = space.get_children().find(c => c.name === INDICATOR_CONTAINER_NAME);
-            if (box) box.destroy();
-            delete space._hasExtraIndicators;
-            
-            // Re-evaluate
-            this._updateSpace(space);
-        });
+    _rebuildAll(reason) {
+        if (this._isRebuilding) return;
+        this._isRebuilding = true;
+        console.log(`PaperWM Extra Indicators: [REBUILD] Starting (${reason})`);
+        
+        const spacesCopy = this._spaces.filter(s => this._isValidActor(s));
+        for (const space of spacesCopy) {
+            try {
+                const box = space.get_children().find(c => c && c.name === INDICATOR_CONTAINER_NAME);
+                if (box) box.destroy();
+                delete space._hasExtraIndicators;
+                this._updateSpace(space);
+            } catch (e) {
+                console.log(`PaperWM Extra Indicators: [ERROR] Rebuild failed for space: ${e.message}`);
+            }
+        }
+        console.log('PaperWM Extra Indicators: [REBUILD] Complete');
+        this._isRebuilding = false;
     }
 
     _updateSpace(space) {
-        if (!space.get_parent()) return;
-
-        // Check if we are on primary monitor
+        if (!this._isValidActor(space)) return;
         const isPrimary = this._isSpaceOnPrimary(space);
-
-        const existingBox = space.get_children().find(c => c.name === INDICATOR_CONTAINER_NAME);
+        const existingBox = space.get_children().find(c => c && c.name === INDICATOR_CONTAINER_NAME);
 
         if (isPrimary) {
-            if (existingBox) {
-                existingBox.destroy();
-                delete space._hasExtraIndicators;
-            }
+            if (existingBox) { existingBox.destroy(); delete space._hasExtraIndicators; }
         } else {
-            if (!existingBox && !space._hasExtraIndicators) {
-                // Ensure we have an allocation before creating
-                if (!space.has_allocation()) return;
-                
-                // Double check position to be sure (allocation might be 0,0 if not mapped yet)
-                const [x, y] = space.get_transformed_position();
-                if (Number.isNaN(x) || Number.isNaN(y)) return;
-
+            // Allow creation if width is valid, even if allocation isn't perfect yet
+            if (!existingBox && !space._hasExtraIndicators && space.width > 0) {
                 this._createIndicators(space);
             }
         }
     }
 
     _isSpaceOnPrimary(space) {
-        const [x, y] = space.get_transformed_position();
-        
-        if (Number.isNaN(x) || Number.isNaN(y)) return true; // Safety default
-
-        const primaryMonitor = Main.layoutManager.primaryMonitor;
-        
-        // Coordinate check
-        if (x >= primaryMonitor.x && x < primaryMonitor.x + primaryMonitor.width &&
-            y >= primaryMonitor.y && y < primaryMonitor.y + primaryMonitor.height) {
-            return true;
-        }
-        
-        // Monitor index check fallback
-        const monitor = Main.layoutManager.findMonitorForActor(space);
-        if (monitor && monitor === primaryMonitor) return true;
-        
-        return false;
+        try {
+            const [x, y] = space.get_transformed_position();
+            const primary = Main.layoutManager.primaryMonitor;
+            if (!primary || Number.isNaN(x) || Number.isNaN(y)) return true;
+            return (x >= primary.x && x < primary.x + primary.width && y >= primary.y && y < primary.y + primary.height);
+        } catch (e) { return true; }
     }
 
     _createIndicators(clipActor) {
+        if (!this._isValidActor(clipActor)) return;
         clipActor._hasExtraIndicators = true;
+
+        let targetHeight = Main.panel.height || 32;
+        try {
+            const primary = Main.layoutManager.primaryMonitor;
+            const current = Main.layoutManager.findMonitorForActor(clipActor);
+            if (primary && current && primary.geometry_scale !== current.geometry_scale) {
+                targetHeight = Math.round(targetHeight * (current.geometry_scale / primary.geometry_scale));
+            }
+        } catch (e) {}
+        if (targetHeight <= 0) targetHeight = 32;
+
+        console.log(`PaperWM Extra Indicators: [CREATE] Creating indicators for space at height ${targetHeight}`);
 
         const box = new St.BoxLayout({
             name: INDICATOR_CONTAINER_NAME,
             reactive: true,
-            x_expand: false,
-            y_expand: false,
-            x_align: Clutter.ActorAlign.END,
-            y_align: Clutter.ActorAlign.FILL, 
-            height: Main.panel.height
+            height: targetHeight,
+            style: `background-color: rgba(0,0,0,0.6); border-radius: 0 0 0 12px; height: ${targetHeight}px;`
         });
 
-        box.add_style_class_name('panel');
-        box.set_style('background-color: rgba(0,0,0,0.6); border-radius: 0 0 0 12px; padding: 0px; margin: 0px;');
-
         const createButton = (sourceActor, menu, name) => {
+            if (!this._isValidActor(sourceActor)) return null;
+            
             try {
-                // Ghost check 1: Source must be visible
-                if (!sourceActor.visible) return null;
+                // Only clone actors that are visible and realized
+                if (!sourceActor.visible || !sourceActor.mapped) return null;
+                console.log(`PaperWM Extra Indicators: [CREATE] Attempting ${name}`);
 
                 const button = new St.Button({
                     style_class: 'panel-button',
                     reactive: true,
-                    can_focus: true,
-                    track_hover: true,
-                    y_align: Clutter.ActorAlign.CENTER,
-                    height: Main.panel.height
+                    height: targetHeight,
+                    style: 'padding: 0px 8px; margin: 0px;'
                 });
-                
-                button.set_style('padding: 0px 8px; margin: 0px;');
 
-                const clone = new Clutter.Clone({ source: sourceActor });
-                clone.y_expand = false;
-                clone.y_align = Clutter.ActorAlign.CENTER;
-                clone.reactive = false; 
-                clone.visible = true;
-                
+                const clone = new Clutter.Clone({ 
+                    source: sourceActor,
+                    visible: true,
+                    y_align: Clutter.ActorAlign.CENTER,
+                    height: Math.min(sourceActor.height || targetHeight, targetHeight)
+                });
                 button.set_child(clone);
 
-                // Sync visibility: If source hides, button hides
-                sourceActor.bind_property('visible', button, 'visible', GObject.BindingFlags.SYNC_CREATE);
+                let sourceDestroyId = 0;
+                let visId = 0;
+
+                const originalSourceActor = menu ? menu.sourceActor : null;
+
+                sourceDestroyId = sourceActor.connect('destroy', () => {
+                    sourceDestroyId = 0;
+                    if (visId > 0) { try { sourceActor.disconnect(visId); } catch (e) {} visId = 0; }
+                    
+                    // CRITICAL: Detach clone immediately
+                    if (this._isValid(clone)) clone.source = null;
+                    if (menu && menu.sourceActor === button) menu.sourceActor = originalSourceActor;
+
+                    GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+                        if (this._isValidActor(button)) button.destroy();
+                        return GLib.SOURCE_REMOVE;
+                    });
+                });
+
+                visId = sourceActor.connect('notify::visible', () => {
+                    if (this._isValidActor(button) && this._isValidActor(sourceActor)) 
+                        button.visible = sourceActor.visible;
+                });
+
+                button.connect('destroy', () => {
+                    if (this._isValid(clone)) clone.source = null;
+                    if (menu && menu.sourceActor === button) menu.sourceActor = originalSourceActor;
+                    
+                    if (this._isValidActor(sourceActor)) {
+                        if (visId > 0) try { sourceActor.disconnect(visId); } catch (e) {}
+                        if (sourceDestroyId > 0) try { sourceActor.disconnect(sourceDestroyId); } catch (e) {}
+                    }
+                    visId = 0;
+                    sourceDestroyId = 0;
+                });
 
                 if (menu) {
                     button.connect('clicked', () => {
-                         const originalSource = menu.sourceActor;
-                         menu.sourceActor = button;
-                         
-                         button.add_style_pseudo_class('active');
-                         button.add_style_pseudo_class('checked');
-                         
-                         menu.toggle();
-                         
-                         const id = menu.connect('open-state-changed', (m, isOpen) => {
-                             if (!isOpen) {
-                                 button.remove_style_pseudo_class('active');
-                                 button.remove_style_pseudo_class('checked');
-                                 
-                                 if (menu.sourceActor === button) {
-                                     menu.sourceActor = originalSource;
-                                 }
-                                 menu.disconnect(id);
-                             }
-                         });
+                        try {
+                            menu.sourceActor = button;
+                            button.add_style_pseudo_class('active');
+                            menu.toggle();
+                            const id = menu.connect('open-state-changed', (m, isOpen) => {
+                                if (!isOpen) {
+                                    button.remove_style_pseudo_class('active');
+                                    if (menu.sourceActor === button) menu.sourceActor = originalSourceActor;
+                                    try { menu.disconnect(id); } catch (e) {}
+                                }
+                            });
+                        } catch (e) {}
                     });
                 }
 
                 box.add_child(button);
+                console.log(`PaperWM Extra Indicators: [CREATE] Success ${name}`);
                 return button;
             } catch (e) {
-                console.error(`PaperWM Extra Indicators: Failed to create button for ${name}`, e);
+                console.log(`PaperWM Extra Indicators: [ERROR] Failed to create button for ${name}: ${e.message}`);
                 return null;
             }
         };
 
-        // 1. Ubuntu AppIndicators
-        try {
-            const keys = Object.keys(Main.panel.statusArea).filter(k => 
-                (k.toLowerCase().includes('appindicator') || 
-                k.toLowerCase().includes('tray')) &&
-                !k.toLowerCase().includes('paperwm') && 
-                !k.toLowerCase().includes('workspace')
-            );
-            
-            keys.forEach(key => {
-                const indicator = Main.panel.statusArea[key];
-                let sourceActor = null;
-                if (indicator instanceof Clutter.Actor) sourceActor = indicator;
-                else if (indicator.container) sourceActor = indicator.container;
-                else if (indicator.actor) sourceActor = indicator.actor;
-                
-                let menu = indicator.menu || (indicator instanceof QuickSettings.QuickSettings ? indicator.menu : null);
+        const statusArea = Main.panel.statusArea;
 
-                if (sourceActor) {
-                     createButton(sourceActor, menu, `Indicator_${key}`);
-                }
+        // 1. AppIndicators & Tray
+        ['appIndicator', 'tray', 'indicator'].forEach(type => {
+            Object.keys(statusArea).forEach(key => {
+                if (!key.toLowerCase().includes(type) || key.toLowerCase().includes('paperwm')) return;
+                try {
+                    const ind = statusArea[key];
+                    if (!ind) return;
+                    let src = ind.container || ind.actor || (ind instanceof Clutter.Actor ? ind : null);
+                    if (src) createButton(src, ind.menu, key);
+                } catch (e) {}
             });
-        } catch(e) {
-            console.error('PaperWM Extra Indicators: Failed to clone AppIndicators', e);
-        }
+        });
 
-        // 2. Date Menu
+        // 2. DateMenu
         try {
-            const dateMenu = Main.panel.statusArea.dateMenu;
-            if (dateMenu) {
-                let source = dateMenu.container || dateMenu.actor || dateMenu;
-                if (source) {
-                    createButton(source, dateMenu.menu, 'DateMenu');
-                }
+            const dm = statusArea.dateMenu;
+            if (dm) createButton(dm.container || dm.actor || dm, dm.menu, 'DateMenu');
+        } catch (e) {}
+
+        // 3. Keyboard
+        try {
+            const kbdKey = Object.keys(statusArea).find(k => k.toLowerCase().includes('keyboard') || k.toLowerCase().includes('inputsource'));
+            if (kbdKey && statusArea[kbdKey]) createButton(statusArea[kbdKey], statusArea[kbdKey].menu, 'KeyboardLayout');
+        } catch (e) {}
+
+        // 4. QuickSettings
+        try {
+            const qs = statusArea.quickSettings;
+            if (qs) {
+                // Find indicators safely in GNOME 46
+                let icons = qs._indicators || (qs.get_first_child ? qs.get_first_child() : null);
+                if (icons) createButton(icons, qs.menu, 'QuickSettings');
             }
-        } catch (e) {
-            console.error('PaperWM Extra Indicators: Failed to clone DateMenu', e);
-        }
+        } catch (e) {}
 
-        // 3. Input Source
         try {
-            const kbdKey = Object.keys(Main.panel.statusArea).find(k => 
-                k.toLowerCase().includes('keyboard') || k.toLowerCase().includes('inputsource'));
-            
-            let kbdItem = kbdKey ? Main.panel.statusArea[kbdKey] : null;
-            if (kbdItem) {
-                createButton(kbdItem, kbdItem.menu, 'KeyboardLayout');
+            if (box.get_n_children() > 0) {
+                clipActor.add_child(box);
+                const constraintX = new Clutter.AlignConstraint({ source: clipActor, align_axis: Clutter.AlignAxis.X_AXIS, factor: 1.0 });
+                box.add_constraint(constraintX);
+                clipActor.set_child_above_sibling(box, null);
+                console.log(`PaperWM Extra Indicators: [CREATE] Attached ${box.get_n_children()} indicators`);
             } else {
-                // Fallback creates a new instance, so we can't bind visibility to a source.
-                // We'll just create it.
-                const inputIndicator = new Keyboard.InputSourceIndicator();
-                if (inputIndicator) {
-                    // Check if actually valid/visible? 
-                    // InputSourceIndicator usually shows if >1 layouts.
-                    // We can't easily check internal state, but let's assume if it was created it's okay.
-                    // Or we can check Main.inputMethod.get_input_sources().length > 1?
-                    // Let's just wrap it.
-                    inputIndicator.visible = true;
-                    
-                    const btn = new St.Button({
-                        style_class: 'panel-button',
-                        y_align: Clutter.ActorAlign.CENTER,
-                        height: Main.panel.height,
-                        child: inputIndicator
-                    });
-                    btn.set_style('padding: 0px 8px;');
-                    box.add_child(btn);
-                }
+                box.destroy();
+                delete clipActor._hasExtraIndicators;
             }
-        } catch (e) {
-            console.error('PaperWM Extra Indicators: Failed to setup InputSourceIndicator', e);
-        }
-
-        // 4. System Indicators
-        try {
-            const quickSettings = Main.panel.statusArea.quickSettings;
-            if (quickSettings) {
-                const indicatorsActor = quickSettings.get_first_child(); 
-                if (indicatorsActor) {
-                     createButton(indicatorsActor, quickSettings.menu, 'QuickSettings');
-                }
-            }
-        } catch (e) {
-             console.error('PaperWM Extra Indicators: Failed to clone SystemIndicators', e);
-        }
-
-        try {
-            clipActor.add_child(box);
-            
-            const constraintX = new Clutter.AlignConstraint({
-                source: clipActor,
-                align_axis: Clutter.AlignAxis.X_AXIS,
-                factor: 1.0 // Right
-            });
-            
-            box.set_y(0);
-            box.add_constraint(constraintX);
-            box.set_height(Main.panel.height);
-            
-            clipActor.set_child_above_sibling(box, null);
         } catch(e) {
-            console.error('PaperWM Extra Indicators: Failed to attach box to clipActor', e);
+            console.log(`PaperWM Extra Indicators: [ERROR] Final attachment failed: ${e.message}`);
         }
     }
 }
